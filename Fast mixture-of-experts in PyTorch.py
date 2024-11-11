@@ -684,13 +684,17 @@ def simple_train(model,train_set,test_set,epochs=5,batch_size=64,augmentation=Fa
     optimizer = optim.AdamW(model.parameters(), lr=0.001)
     
     # Apply augmentations with Kornia
-    if augmentation:
+    if augmentation:        
         augmentations = torch.nn.Sequential(
-            K.RandomRotation(degrees=30.0, p=0.5),  # 70% chance to apply rotation
-            K.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(5, 5), p=0.5),  # 50% chance
-            K.RandomGaussianBlur(kernel_size=(5, 5), sigma=(0.1, 2.0), p=0.5),  # 40% chance to apply blur
-            # K.RandomHorizontalFlip(p=0.6),  # 60% chance to apply horizontal flip
-            K.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1, p=0.5),  # 30% chance
+            # 70% chance to apply rotation    
+            K.RandomRotation(degrees=30.0, p=0.5),
+            # 50% chance
+            K.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(5, 5), p=0.5),
+            # 40% chance to apply blur
+            K.RandomGaussianBlur(kernel_size=(5, 5), sigma=(0.1, 2.0), p=0.5),
+            # 60% chance to apply horizontal flip
+            # K.RandomHorizontalFlip(p=0.6),
+            # 30% chanceK.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1, p=0.5),
 
             # New augmentations
             # MorphologyEx(kernel_size=(3, 3), operation="close", p=0.5),
@@ -699,7 +703,7 @@ def simple_train(model,train_set,test_set,epochs=5,batch_size=64,augmentation=Fa
             # MorphologyEx(kernel_size=(3, 3), operation="tophat", p=0.5),
             # Dilation(kernel_size=(3, 3), p=0.5),
             # MorphologyEx(kernel_size=(3, 3), operation="open", p=0.5),
-            
+            #             
         ).to(device)
 
     # Create data loaders
