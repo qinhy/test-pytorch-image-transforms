@@ -6,11 +6,9 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset, Subset
 
 import torchvision
 from torchvision import datasets, transforms
-import torchvision.transforms as T
 
 import matplotlib.pyplot as plt
 import numpy as np
-from PIL import Image
 import random
 
 import kornia
@@ -37,17 +35,65 @@ device = "cuda:0" if torch.cuda.is_available() else "cpu"
 device = torch.device(device)
 print(device)
 
+
+class RandomNoise(torch.nn.Module):
+    """Applies random Gaussian noise to each channel of a color image."""
+    def __init__(self, mean=0.0, std=0.1, p=0.5):
+        super().__init__()
+        self.mean = mean
+        self.std = std
+        self.p = p
+
+    def forward(self, x):
+        if torch.rand(1).item() < self.p:
+            noise = torch.randn_like(x) * self.std + self.mean
+            x = x + noise
+            x = torch.clamp(x, 0.0, 1.0)  # Ensures values remain within [0, 1] range for normalized images
+        return x
+
+class MorphologyEx(torch.nn.Module):
+    """Applies random morphological operations: open, close, top hat."""
+    def __init__(self, kernel_size=(3, 3), operation="open", p=0.5):
+        super().__init__()
+        self.kernel = torch.ones(1, 1, *kernel_size, device=device)  # Single-channel kernel but will work for each channel
+        self.operation = operation
+        self.p = p
+
+    def forward(self, x):
+        if torch.rand(1).item() < self.p:
+            if self.operation == "open":
+                x = kornia.morphology.opening(x, self.kernel.repeat(x.shape[1], 1, 1, 1))
+            elif self.operation == "close":
+                x = kornia.morphology.closing(x, self.kernel.repeat(x.shape[1], 1, 1, 1))
+            elif self.operation == "tophat":
+                x = kornia.morphology.top_hat(x, self.kernel.repeat(x.shape[1], 1, 1, 1))
+        return x
+
+class Erosion(torch.nn.Module):
+    """Applies random erosion."""
+    def __init__(self, kernel_size=(3, 3), p=0.5):
+        super().__init__()
+        self.kernel = torch.ones(1, 1, *kernel_size, device=device)  # Single-channel kernel
+        self.p = p
+
+    def forward(self, x):
+        if torch.rand(1).item() < self.p:
+            x = kornia.morphology.erosion(x, self.kernel.repeat(x.shape[1], 1, 1, 1))
+        return x
+
+class Dilation(torch.nn.Module):
+    """Applies random dilation."""
+    def __init__(self, kernel_size=(3, 3), p=0.5):
+        super().__init__()
+        self.kernel = torch.ones(1, 1, *kernel_size, device=device)  # Single-channel kernel
+        self.p = p
+
+    def forward(self, x):
+        if torch.rand(1).item() < self.p:
+            x = kornia.morphology.dilation(x, self.kernel.repeat(x.shape[1], 1, 1, 1))
+        return x
 class CustomDataset(Dataset):
-    def __init__(self, dataset, label_offset):        
-        # Apply augmentations with Kornia
-        self.augmentations = torch.nn.Sequential(
-            K.RandomRotation(degrees=30.0, p=0.7),  # 70% chance to apply rotation
-            K.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(5, 5), p=0.5),  # 50% chance
-            K.RandomGaussianBlur(kernel_size=(5, 5), sigma=(0.1, 2.0), p=0.4),  # 40% chance to apply blur
-            K.RandomHorizontalFlip(p=0.6),  # 60% chance to apply horizontal flip
-            K.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=0.3)  # 30% chance
-        ).to(device)
-        
+    def __init__(self, dataset, label_offset):
         self.dataset = dataset
         self.label_offset = label_offset
 
@@ -76,13 +122,18 @@ to_tensor = transforms.Compose([
 ])
 
 # Load and wrap datasets with appropriate transformations and label adjustments
-mnist_train = CustomDataset(datasets.MNIST(root='./data', train=True, download=True, transform=resize_and_to_tensor), label_offset=0)
-mnist_test = CustomDataset(datasets.MNIST(root='./data', train=False, download=True, transform=resize_and_to_tensor), label_offset=0)
+mnist_train = CustomDataset(datasets.MNIST(root='./data', train=True, download=True,
+                                                        transform=resize_and_to_tensor), label_offset=0)
+mnist_test = CustomDataset(datasets.MNIST(root='./data', train=False, download=True,
+                                                        transform=resize_and_to_tensor), label_offset=0)
 
-fashion_mnist_train = CustomDataset(datasets.FashionMNIST(root='./data', train=True, download=True, transform=resize_and_to_tensor), label_offset=10)
-fashion_mnist_test = CustomDataset(datasets.FashionMNIST(root='./data', train=False, download=True, transform=resize_and_to_tensor), label_offset=10)
+fashion_mnist_train = CustomDataset(datasets.FashionMNIST(root='./data', train=True, download=True,
+                                                        transform=resize_and_to_tensor), label_offset=10)
+fashion_mnist_test = CustomDataset(datasets.FashionMNIST(root='./data', train=False, download=True,
+                                                        transform=resize_and_to_tensor), label_offset=10)
 
-SVHN_train = datasets.SVHN(root='./data', download=True, transform=to_tensor)
+SVHN_train = datasets.SVHN(root='./data', download=True,
+                                                        transform=to_tensor)
 # Filter the dataset to only include the selected classes
 def filter_by_class(dataset, classes):
     class_indices = [i for i in range(len(dataset)) if int(dataset[i][1]) in classes]
@@ -92,8 +143,10 @@ SVHN_train = filter_by_class(SVHN_train, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 SVHN_test = CustomDataset(Subset(SVHN_train,torch.arange(0,int(len(SVHN_train)*0.9))), label_offset=20)
 SVHN_train = CustomDataset(Subset(SVHN_train,torch.arange(int(len(SVHN_train)*0.9),len(SVHN_train))), label_offset=20)
 
-cifar10_train = CustomDataset(datasets.CIFAR10(root='./data', train=True, download=True, transform=to_tensor), label_offset=20)
-cifar10_test = CustomDataset(datasets.CIFAR10(root='./data', train=False, download=True, transform=to_tensor), label_offset=20)
+cifar10_train = CustomDataset(datasets.CIFAR10(root='./data', train=True, download=True,
+                                                        transform=to_tensor), label_offset=20)
+cifar10_test = CustomDataset(datasets.CIFAR10(root='./data', train=False, download=True,
+                                                        transform=to_tensor), label_offset=20)
 
 def randomsub(dataset,num):
     return Subset(dataset,torch.randint(0,len(dataset),(num,)))
@@ -101,21 +154,11 @@ def randomsub(dataset,num):
 train_num = 128 #*128 *2
 test_num = 1024 *4
 
-mnist_train = randomsub(mnist_train,train_num)
-mnist_test = randomsub(mnist_test,test_num)
-
-fashion_mnist_train = randomsub(fashion_mnist_train,train_num)
-fashion_mnist_test = randomsub(fashion_mnist_test,test_num)
-
-SVHN_train = randomsub(SVHN_train,train_num)
-SVHN_test = randomsub(SVHN_test,test_num)
-
-cifar10_train = randomsub(cifar10_train,train_num)
-cifar10_test = randomsub(cifar10_test,test_num)
-
 # Combine datasets
-combined_train_dataset = ConcatDataset([mnist_train, fashion_mnist_train, SVHN_train,])
-combined_test_dataset = ConcatDataset([mnist_test, fashion_mnist_test, SVHN_test,])
+combined_train_dataset = ConcatDataset(list(map(lambda x:randomsub(x,train_num),
+                                            [mnist_train, fashion_mnist_train, SVHN_train,])))
+combined_test_dataset  = ConcatDataset(list(map(lambda x:randomsub(x,test_num),
+                                            [mnist_test, fashion_mnist_test, SVHN_test,])))
 
 class SimpleCNN(nn.Module):
     def __init__(self, num_classes=30):  # Adjusted for 30 combined classes
@@ -466,16 +509,15 @@ class ConvMoE(nn.Module):
         self.gate = nn.Conv2d(in_channels, num_experts, kernel_size, stride, padding)
 
     def forward(self, x):
-        batch_size, _, height, width = x.shape
         expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)  # Shape: [batch, num_experts, channels, height, width]
         gating_weights = F.softmax(self.gate(x), dim=1)  # Shape: [batch, num_experts, height, width]
         gating_weights = gating_weights.unsqueeze(2)  # Add channel dimension
         output = torch.sum(gating_weights * expert_outputs, dim=1)
         return output
 
-class SimpleCNN(nn.Module):
+class SimpleMoECNN(nn.Module):
     def __init__(self, num_classes=32, num_experts=3, dropout_rate=0.5):
-        super(SimpleCNN, self).__init__()
+        super(SimpleMoECNN, self).__init__()
         self.num_experts = num_experts
 
         # Convolutional Layers with BatchNorm and Pooling
@@ -612,11 +654,13 @@ class Classifier(nn.Module):
         x = self.fc2(x)
         return x
 
-class VisionTransformer(nn.Module):
-    def __init__(self, n_channels=3, embed_dim=64, n_layers=6, n_attention_heads=4, forward_mul=2, image_size=32, patch_size=4, n_classes=32):
+class VisionMoETransformer(nn.Module):
+    def __init__(self, n_channels=3, embed_dim=64, n_layers=6, n_attention_heads=4,
+                 forward_mul=2, image_size=32, patch_size=4, n_classes=32):
         super().__init__()
         self.embedding = EmbedLayer(n_channels, embed_dim, image_size, patch_size)
-        self.encoder = nn.Sequential(*[Encoder(embed_dim, n_attention_heads, forward_mul) for _ in range(n_layers)], nn.LayerNorm(embed_dim))
+        self.encoder = nn.Sequential(*[Encoder(embed_dim, n_attention_heads, forward_mul
+                                               ) for _ in range(n_layers)], nn.LayerNorm(embed_dim))
         self.norm = nn.LayerNorm(embed_dim) # Final normalization layer after the last block
         self.classifier = Classifier(embed_dim, n_classes)
         self.criterion=nn.CrossEntropyLoss()
@@ -633,15 +677,55 @@ class VisionTransformer(nn.Module):
     def get_loss(self, outputs, inputs, labels):
         return self.criterion(outputs,labels)
 
-def simple_train(model,train_set,test_set,epochs=5,batch_size=64,lambel_func=lambda x:x):
+def simple_train(model,train_set,test_set,epochs=5,batch_size=64,augmentation=False):
     # Define the loss function and optimizer
     # optimizer = optim.Adam(model.parameters(), lr=0.001)
     # optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     optimizer = optim.AdamW(model.parameters(), lr=0.001)
+    
+    # Apply augmentations with Kornia
+    if augmentation:
+        augmentations = torch.nn.Sequential(
+            K.RandomRotation(degrees=30.0, p=0.5),  # 70% chance to apply rotation
+            K.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(5, 5), p=0.5),  # 50% chance
+            K.RandomGaussianBlur(kernel_size=(5, 5), sigma=(0.1, 2.0), p=0.5),  # 40% chance to apply blur
+            # K.RandomHorizontalFlip(p=0.6),  # 60% chance to apply horizontal flip
+            K.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1, p=0.5),  # 30% chance
+
+            # New augmentations
+            # MorphologyEx(kernel_size=(3, 3), operation="close", p=0.5),
+            # Erosion(kernel_size=(3, 3), p=0.5),
+            RandomNoise(mean=0.0, std=0.1, p=0.5),
+            # MorphologyEx(kernel_size=(3, 3), operation="tophat", p=0.5),
+            # Dilation(kernel_size=(3, 3), p=0.5),
+            # MorphologyEx(kernel_size=(3, 3), operation="open", p=0.5),
+            
+        ).to(device)
 
     # Create data loaders
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
+    test_loader  = DataLoader(test_set, batch_size=batch_size, shuffle=False)
+
+
+    def show_samples(dataset, num_samples=64):
+        # Get a batch of samples
+        data_loader = torch.utils.data.DataLoader(dataset, batch_size=num_samples, shuffle=True)
+        images, labels = next(iter(data_loader))
+
+        for i in range(len(images)):
+            images[i] = augmentations(images[i])[0]
+        # Denormalize if the dataset is normalized (adjust if necessary)
+        # images = images / 2 + 0.5  # Assuming a [-1, 1] range normalization (common practice)
+
+        grid_img = torchvision.utils.make_grid(images, nrow=int(num_samples**0.5))
+        plt.figure(figsize=(15, 5))
+        plt.imshow(grid_img.permute(1, 2, 0).numpy())  # Convert channels-first (C, H, W) to channels-last (H, W, C)
+        plt.axis('off')
+        plt.title("Sample Images from Dataset")
+        plt.show()
+
+    # Assuming you have a dataset variable defined, e.g., `train_dataset`
+    show_samples(train_set)
 
     # Train the model
     def train(model, device, train_loader, optimizer, epochs=epochs):
@@ -650,7 +734,8 @@ def simple_train(model,train_set,test_set,epochs=5,batch_size=64,lambel_func=lam
             running_loss = 0.0
             for i, (inputs, labels) in enumerate(train_loader, 0):
                 inputs, labels = inputs.to(device), labels.to(device)
-                labels = lambel_func(labels)
+                
+                if augmentation: inputs = augmentations(inputs)
 
                 optimizer.zero_grad()
 
@@ -661,7 +746,7 @@ def simple_train(model,train_set,test_set,epochs=5,batch_size=64,lambel_func=lam
 
                 running_loss += loss.item()
                 if i % 10==0:
-                    print(f'Epoch: {epoch + 1}, Batch: {i + 1}, Loss: {running_loss / 100}')                
+                    print(f'Epoch: {epoch + 1}, Batch: {i + 1}, Loss: {running_loss}')                
                     test(model, device, test_loader)
                     running_loss = 0.0
 
@@ -673,7 +758,6 @@ def simple_train(model,train_set,test_set,epochs=5,batch_size=64,lambel_func=lam
         with torch.no_grad():
             for inputs, labels in test_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
-                labels = lambel_func(labels)
                 outputs = model(inputs)
                 test_loss += model.get_loss(outputs, inputs, labels).item()
                 if type(outputs) is not tuple:
@@ -700,10 +784,10 @@ def simple_train(model,train_set,test_set,epochs=5,batch_size=64,lambel_func=lam
 # simple_train(fashion_mnist_model,   combined_train_dataset,combined_test_dataset,1)
 # simple_train(SVHN_model,            combined_train_dataset,combined_test_dataset,1)
 
-svit = VisionTransformer(embed_dim=64, n_layers=6, image_size=32, n_classes=32)
-moe = SimpleCNN(num_classes=32)
+svit = VisionMoETransformer(embed_dim=64, n_layers=6, image_size=32, n_classes=32)
+moe = SimpleMoECNN(num_classes=32)
 
-simple_train(moe,            combined_train_dataset,combined_test_dataset,300,32)
+simple_train(moe,            combined_train_dataset,combined_test_dataset,300,32, True)
 # simple_train(moe,            combined_train_dataset,fashion_mnist_test,1)
 # simple_train(moe,            combined_train_dataset,SVHN_test,1)
 
